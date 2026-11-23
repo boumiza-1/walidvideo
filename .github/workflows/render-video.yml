@@ -1,0 +1,81 @@
+name: Exporter la video Walid Voyages (MP4)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'package.json'
+      - '.github/workflows/render-video.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  render-video:
+    name: Rendu Remotion 40 secondes
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Recuperer le projet
+        uses: actions/checkout@v4
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Polices arabes pour un rendu correct
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-noto-core
+          fc-cache -f
+
+      - name: Installer Remotion
+        run: npm install --no-audit --no-fund
+
+      - name: Capturer le site officiel (si accessible)
+        shell: bash
+        run: |
+          mkdir -p captures
+          CHROME="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)"
+          if [ -n "$CHROME" ]; then
+            echo "Capture via $CHROME"
+            timeout 45s "$CHROME" --headless --no-sandbox --disable-gpu --disable-dev-shm-usage --hide-scrollbars --force-device-scale-factor=1 --window-size=570,1050 --virtual-time-budget=9000 --screenshot="$PWD/captures/home.png" "https://www.walid-voyages.com/" >/dev/null 2>&1 || true
+            timeout 45s "$CHROME" --headless --no-sandbox --disable-gpu --disable-dev-shm-usage --hide-scrollbars --force-device-scale-factor=1 --window-size=570,1050 --virtual-time-budget=9000 --screenshot="$PWD/captures/results.png" "https://www.walid-voyages.com/liste?checkin=2026-11-27&checkout=2026-11-28&city=31" >/dev/null 2>&1 || true
+            if [ -f captures/home.png ] && [ "$(stat -c %s captures/home.png)" -gt 65000 ]; then
+              cp captures/home.png public/assets/site-home.png
+              echo "Real site homepage capture used."
+            else
+              echo "Homepage capture unavailable; using clearly marked DEMO."
+            fi
+            if [ -f captures/results.png ] && [ "$(stat -c %s captures/results.png)" -gt 65000 ]; then
+              cp captures/results.png public/assets/site-results.png
+              echo "Real site results capture used; please inspect before publishing."
+            else
+              echo "Results capture unavailable; using clearly marked DEMO."
+            fi
+          else
+            echo "Chrome not found; using the clearly marked DEMO screenshots."
+          fi
+
+      - name: Exporter le MP4
+        run: npm run render -- --concurrency=2
+
+      - name: Verifier la video
+        shell: bash
+        run: |
+          test -s out/walid-site-40s.mp4
+          ls -lh out/walid-site-40s.mp4
+
+      - name: Telecharger le film et ses captures
+        uses: actions/upload-artifact@v4
+        with:
+          name: Walid-Voyages-Video-MP4
+          path: |
+            out/walid-site-40s.mp4
+            captures/*.png
+          if-no-files-found: error
+          retention-days: 14
